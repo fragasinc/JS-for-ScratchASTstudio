@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JS → Scratch AST Studio</title>
+<style>
+:root{
+  --bg:#1e1b26; --panel:#252130; --panel2:#2c2838; --border:#3a3548;
+  --text:#eae6f5; --muted:#9b93b0; --accent:#ff8c1a; --accent2:#4c97ff;
+  --ok:#3fb950; --err:#ff5c5c; --mono:'SF Mono',Consolas,'Courier New',monospace;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f5f3fa; --panel:#ffffff; --panel2:#f0eef8; --border:#dcd7ea;
+    --text:#241f33; --muted:#6b6480;
+  }
+}
+:root[data-theme="dark"]{ --bg:#1e1b26; --panel:#252130; --panel2:#2c2838; --border:#3a3548; --text:#eae6f5; --muted:#9b93b0;}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,Segoe UI,Roboto,sans-serif;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  display:flex; flex-direction:column;
+}
+header{
+  padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px;
+  flex-wrap:wrap; background:var(--panel);
+}
+header h1{font-size:17px;margin:0;font-weight:700;}
+header h1 span{color:var(--accent);}
+header p{margin:0;font-size:12px;color:var(--muted);flex:1;min-width:200px;}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border);background:var(--panel);}
+button{
+  background:var(--panel2); color:var(--text); border:1px solid var(--border); padding:8px 14px;
+  border-radius:8px; font-size:13px; cursor:pointer; font-weight:600; transition:.15s;
+}
+button:hover{border-color:var(--accent);}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1e1b26;}
+button.primary:hover{filter:brightness(1.08);}
+button.secondary{background:var(--accent2);border-color:var(--accent2);color:#fff;}
+button:disabled{opacity:.5;cursor:not-allowed;}
+select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;}
+main{flex:1;display:flex;min-height:0;}
+.col{display:flex;flex-direction:column;min-width:0;}
+.col-editor{flex:1.1;border-right:1px solid var(--border);}
+.col-out{flex:1;}
+.tabs{display:flex;border-bottom:1px solid var(--border);background:var(--panel);}
+.tab{padding:9px 16px;font-size:12px;cursor:pointer;color:var(--muted);border-right:1px solid var(--border);font-weight:600;}
+.tab.active{color:var(--accent);background:var(--panel2);}
+textarea#code{
+  flex:1;resize:none;border:none;outline:none;background:var(--panel);color:var(--text);
+  font-family:var(--mono);font-size:13px;line-height:1.55;padding:16px;white-space:pre;overflow:auto;
+}
+.panel{flex:1;overflow:auto;padding:14px;background:var(--panel);display:none;}
+.panel.active{display:block;}
+.gcat{margin-bottom:18px;}
+.gcat h3{margin:0 0 8px;font-size:13px;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);padding-bottom:6px;}
+.gcmd{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;}
+.gcmd code.sig{font-family:var(--mono);font-size:12.5px;color:var(--accent2);font-weight:700;}
+.gcmd p{margin:6px 0 0;font-size:12.5px;color:var(--text);line-height:1.5;}
+.gcmd pre.ex{margin:8px 0 0;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--muted);overflow:auto;}
+.gintro{font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.6;}
+pre{margin:0;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--text);}
+.msg{padding:10px 12px;border-radius:8px;margin-bottom:8px;font-size:13px;font-family:var(--mono);}
+.msg.ok{background:rgba(63,185,80,.12);border:1px solid var(--ok);color:var(--ok);}
+.msg.err{background:rgba(255,92,92,.12);border:1px solid var(--err);color:var(--err);}
+.msg.info{background:rgba(76,151,255,.12);border:1px solid var(--accent2);color:var(--accent2);}
+footer{padding:8px 18px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);background:var(--panel);}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>JS → <span>Scratch AST Studio</span></h1>
+  <p>Escreva JS usando a API abaixo → gera um <code>.sb3</code> válido para o Scratch.</p>
+  <select id="examples"></select>
+</header>
+<div class="toolbar">
+  <button class="primary" id="btnValidate">✓ Validar</button>
+  <button class="secondary" id="btnBuild">⬇ Gerar e Baixar .sb3</button>
+  <button id="btnHelp">📖 Guia de Comandos</button>
+</div>
+<main>
+  <div class="col col-editor">
+    <div class="tabs"><div class="tab active">editor.js</div></div>
+    <textarea id="code" spellcheck="false"></textarea>
+  </div>
+  <div class="col col-out">
+    <div class="tabs">
+      <div class="tab active" data-p="msgs">Status / Erros</div>
+      <div class="tab" data-p="guide">Guia de Comandos</div>
+      <div class="tab" data-p="ast">AST (blocos)</div>
+      <div class="tab" data-p="json">project.json</div>
+    </div>
+    <div class="panel active" id="p-msgs"></div>
+    <div class="panel" id="p-guide"></div>
+    <div class="panel" id="p-ast"><pre id="astOut">—</pre></div>
+    <div class="panel" id="p-json"><pre id="jsonOut">—</pre></div>
+  </div>
+</main>
+<footer>Pipeline: código JS (DSL) → construção incremental do AST de blocos (contexto next/parent) → project.json oficial → assets (md5) → ZIP → .sb3</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+/* =========================================================================
+   1) MD5 puro-JS (necessário p/ nomear assets como <md5>.svg — Web Crypto
+      não expõe MD5). Implementação compacta e padrão (RFC 1321).
+   ========================================================================= */
+function md5(str){
+  function rl(n,c){return (n<<c)|(n>>>(32-c));}
+  function addU(x,y){var l=(x&0xFFFF)+(y&0xFFFF),m=(x>>16)+(y>>16)+(l>>16);return (m<<16)|(l&0xFFFF);}
+  function ff(a,b,c,d,x,s,t){return addU(rl(addU(addU(a,(b&c)|(~b&d)),addU(x,t)),s),b);}
+  function gg(a,b,c,d,x,s,t){return addU(rl(addU(addU(a,(b&d)|(c&~d)),addU(x,t)),s),b);}
+  function hh(a,b,c,d,x,s,t){return addU(rl(addU(addU(a,b^c^d),addU(x,t)),s),b);}
+  function ii(a,b,c,d,x,s,t){return addU(rl(addU(addU(a,c^(b|~d)),addU(x,t)),s),b);}
+  function toWords(s){
+    var n=s.length, words=[]; for(var i=0;i<n*8;i+=8) words[i>>5]|=(s.charCodeAt(i/8)&0xff)<<(i%32);
+    return words;
+  }
+  str=unescape(encodeURIComponent(str)); // utf-8
+  var x=toWords(str), len=str.length*8;
+  x[len>>5]|=0x80<<(len%32); x[(((len+64)>>>9)<<4)+14]=len;
+  var a=1732584193,b=-271733879,c=-1732584194,d=271733878;
+  for(var i=0;i<x.length;i+=16){
+    var oa=a,ob=b,oc=c,od=d;
+    a=ff(a,b,c,d,x[i+0]|0,7,-680876936); d=ff(d,a,b,c,x[i+1]|0,12,-389564586); c=ff(c,d,a,b,x[i+2]|0,17,606105819); b=ff(b,c,d,a,x[i+3]|0,22,-1044525330);
+    a=ff(a,b,c,d,x[i+4]|0,7,-176418897); d=ff(d,a,b,c,x[i+5]|0,12,1200080426); c=ff(c,d,a,b,x[i+6]|0,17,-1473231341); b=ff(b,c,d,a,x[i+7]|0,22,-45705983);
+    a=ff(a,b,c,d,x[i+8]|0,7,1770035416); d=ff(d,a,b,c,x[i+9]|0,12,-1958414417); c=ff(c,d,a,b,x[i+10]|0,17,-42063); b=ff(b,c,d,a,x[i+11]|0,22,-1990404162);
+    a=ff(a,b,c,d,x[i+12]|0,7,1804603682); d=ff(d,a,b,c,x[i+13]|0,12,-40341101); c=ff(c,d,a,b,x[i+14]|0,17,-1502002290); b=ff(b,c,d,a,x[i+15]|0,22,1236535329);
+    a=gg(a,b,c,d,x[i+1]|0,5,-165796510); d=gg(d,a,b,c,x[i+6]|0,9,-1069501632); c=gg(c,d,a,b,x[i+11]|0,14,643717713); b=gg(b,c,d,a,x[i+0]|0,20,-373897302);
+    a=gg(a,b,c,d,x[i+5]|0,5,-701558691); d=gg(d,a,b,c,x[i+10]|0,9,38016083); c=gg(c,d,a,b,x[i+15]|0,14,-660478335); b=gg(b,c,d,a,x[i+4]|0,20,-405537848);
+    a=gg(a,b,c,d,x[i+9]|0,5,568446438); d=gg(d,a,b,c,x[i+14]|0,9,-1019803690); c=gg(c,d,a,b,x[i+3]|0,14,-187363961); b=gg(b,c,d,a,x[i+8]|0,20,1163531501);
+    a=gg(a,b,c,d,x[i+13]|0,5,-1444681467); d=gg(d,a,b,c,x[i+2]|0,9,-51403784); c=gg(c,d,a,b,x[i+7]|0,14,1735328473); b=gg(b,c,d,a,x[i+12]|0,20,-1926607734);
+    a=hh(a,b,c,d,x[i+5]|0,4,-378558); d=hh(d,a,b,c,x[i+8]|0,11,-2022574463); c=hh(c,d,a,b,x[i+11]|0,16,1839030562); b=hh(b,c,d,a,x[i+14]|0,23,-35309556);
+    a=hh(a,b,c,d,x[i+1]|0,4,-1530992060); d=hh(d,a,b,c,x[i+4]|0,11,1272893353); c=hh(c,d,a,b,x[i+7]|0,16,-155497632); b=hh(b,c,d,a,x[i+10]|0,23,-1094730640);
+    a=hh(a,b,c,d,x[i+13]|0,4,681279174); d=hh(d,a,b,c,x[i+0]|0,11,-358537222); c=hh(c,d,a,b,x[i+3]|0,16,-722521979); b=hh(b,c,d,a,x[i+6]|0,23,76029189);
+    a=hh(a,b,c,d,x[i+9]|0,4,-640364487); d=hh(d,a,b,c,x[i+12]|0,11,-421815835); c=hh(c,d,a,b,x[i+15]|0,16,530742520); b=hh(b,c,d,a,x[i+2]|0,23,-995338651);
+    a=ii(a,b,c,d,x[i+0]|0,6,-198630844); d=ii(d,a,b,c,x[i+7]|0,10,1126891415); c=ii(c,d,a,b,x[i+14]|0,15,-1416354905); b=ii(b,c,d,a,x[i+5]|0,21,-57434055);
+    a=ii(a,b,c,d,x[i+12]|0,6,1700485571); d=ii(d,a,b,c,x[i+3]|0,10,-1894986606); c=ii(c,d,a,b,x[i+10]|0,15,-1051523); b=ii(b,c,d,a,x[i+1]|0,21,-2054922799);
+    a=ii(a,b,c,d,x[i+8]|0,6,1873313359); d=ii(d,a,b,c,x[i+15]|0,10,-30611744); c=ii(c,d,a,b,x[i+6]|0,15,-1560198380); b=ii(b,c,d,a,x[i+13]|0,21,1309151649);
+    a=ii(a,b,c,d,x[i+4]|0,6,-145523070); d=ii(d,a,b,c,x[i+11]|0,10,-1120210379); c=ii(c,d,a,b,x[i+2]|0,15,718787259); b=ii(b,c,d,a,x[i+9]|0,21,-343485551);
+    a=addU(a,oa); b=addU(b,ob); c=addU(c,oc); d=addU(d,od);
+  }
+  function toHex(n){var s='',b;for(var j=0;j<4;j++){b=(n>>(j*8))&255;s+=('0'+b.toString(16)).slice(-2);}return s;}
+  return toHex(a)+toHex(b)+toHex(c)+toHex(d);
+}
+
+/* =========================================================================
+   2) BLOCK BUILDER — camada baixo-nível (rawBlock) + contexto de encadeamento
+      next/parent. Este é o "AST" intermediário: cada bloco Scratch já nasce
+      no formato oficial; o contexto controla como eles se conectam.
+   ========================================================================= */
+function makeId(){
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let s=''; for(let i=0;i<20;i++) s+=chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+
+class Builder{
+  constructor(){
+    this.blocks={};         // id -> block oficial do Scratch
+    this.variables={};      // id -> [nome, valorInicial]
+    this.lists={};          // id -> [nome, [itens]]
+    this.broadcasts={};     // id -> nome
+    this.varNameToId={};
+    this.listNameToId={};
+    this.bcastNameToId={};
+    this.stack=[{parentId:null,lastId:null,topLevel:true}]; // contexto atual
+  }
+  ctx(){ return this.stack[this.stack.length-1]; }
+
+  // Cria um bloco de PILHA (statement) e o encaixa no contexto atual.
+  rawBlock(opcode, inputs, fields, extra){
+    const id=makeId();
+    const c=this.ctx();
+    const block={
+      opcode, next:null,
+      parent:c.topLevel?null:c.parentId,
+      inputs:inputs||{}, fields:fields||{},
+      shadow:false, topLevel:!!c.topLevel,
+      x:c.topLevel?0:undefined, y:c.topLevel?0:undefined
+    };
+    if(extra) Object.assign(block, extra);
+    this.blocks[id]=block;
+    if(c.lastId){ this.blocks[c.lastId].next=id; block.parent=c.lastId; block.topLevel=false; }
+    else if(!c.topLevel){ block.parent=c.parentId; }
+    c.lastId=id;
+    if(c.topLevel) c.parentId=id; // referência à raiz do script
+    return id;
+  }
+  // Cria um bloco REPORTER/BOOLEANO (não faz parte da pilha; será referenciado
+  // como input de outro bloco). Recebe parentId depois, ao ser consumido.
+  rawReporter(opcode, inputs, fields){
+    const id=makeId();
+    this.blocks[id]={opcode,next:null,parent:null,inputs:inputs||{},fields:fields||{},shadow:false,topLevel:false};
+    return id;
+  }
+  attachReporterAsInput(blockId, inputName, reporterId){
+    this.blocks[reporterId].parent=blockId;
+    this.blocks[blockId].inputs[inputName]=[2, reporterId];
+  }
+  numInput(v){ const n=Number(v); return [1,[4, Number.isFinite(n)?n:0]]; }
+  textInput(v){ return [1,[10,String(v)]]; }
+  boolMaybe(blockId, name, val){
+    if(val && typeof val==='object' && val.__rid){
+      this.attachReporterAsInput(blockId, name, val.__rid);
+    }
+  }
+  // Executa callback dentro de uma nova "substack" ligada a inputName do bloco pai.
+  runSubstack(parentBlockId, inputName, cb){
+    this.stack.push({parentId:parentBlockId, lastId:null, topLevel:false});
+    cb();
+    const inner=this.stack.pop();
+    if(inner.parentId!==parentBlockId){} // parentId reaproveitado como "primeiro filho" abaixo
+    // encontra o primeiro bloco criado nesta substack (se houver)
+    // truque: usamos parentId do próprio contexto para achar cabeça, guardado em inner._head
+    if(inner._head) this.blocks[parentBlockId].inputs[inputName]=[2, inner._head];
+  }
+  addVariable(name){
+    if(this.varNameToId[name]) return this.varNameToId[name];
+    const id=makeId(); this.variables[id]=[name,0]; this.varNameToId[name]=id; return id;
+  }
+  addList(name){
+    if(this.listNameToId[name]) return this.listNameToId[name];
+    const id=makeId(); this.lists[id]=[name,[]]; this.listNameToId[name]=id; return id;
+  }
+  addBroadcast(name){
+    if(this.bcastNameToId[name]) return this.bcastNameToId[name];
+    const id=makeId(); this.broadcasts[id]=name; this.bcastNameToId[name]=id; return id;
+  }
+}
+// Corrige runSubstack p/ capturar corretamente o primeiro bloco da substack.
+Builder.prototype.runSubstack=function(parentBlockId, inputName, cb){
+  this.stack.push({parentId:null,lastId:null,topLevel:false,_first:null});
+  const before=Object.keys(this.blocks).length;
+  cb();
+  const inner=this.stack.pop();
+  // primeiro bloco criado = menor rastreado via _firstCreated
+  if(inner._firstCreated) this.blocks[parentBlockId].inputs[inputName]=[2, inner._firstCreated];
+};
+
+/* =========================================================================
+   3) DSL de alto nível — funções amigáveis em PT-BR. Cada uma usa rawBlock/
+      rawReporter internamente, respeitando next/parent automaticamente.
+   ========================================================================= */
+function buildAPI(B){
+  const in_=(v)=> (v&&v.__rid)? [2,v.__rid] : B.numInput(v);
+  const txt_=(v)=> (v&&v.__rid)? [2,v.__rid] : B.textInput(v);
+  // Religa qualquer bloco (reporter externo [2,id] OU shadow de menu [1,id])
+  // referenciado num input, para que seu "parent" aponte para quem o contém.
+  // Sem isso o Scratch pode rejeitar a conexão (shadow com parent=null é inválido).
+  function relinkInputs(id, inputMap){
+    for(const k in inputMap){
+      const raw=inputMap[k];
+      if(Array.isArray(raw) && (raw[0]===1 || raw[0]===2) && typeof raw[1]==='string' && B.blocks[raw[1]]){
+        B.blocks[raw[1]].parent=id;
+        B.blocks[raw[1]].topLevel=false;
+      }
+    }
+  }
+  function stmt(opcode, inputMap, fields){
+    const inputs={};
+    for(const k in inputMap) inputs[k]=inputMap[k];
+    const id=B.rawBlock(opcode, inputs, fields||{});
+    relinkInputs(id, inputMap);
+    return id;
+  }
+  function reporter(opcode, inputMap, fields){
+    const inputs={};
+    for(const k in (inputMap||{})) inputs[k]=inputMap[k];
+    const id=B.rawReporter(opcode, inputs, fields||{});
+    relinkInputs(id, inputMap||{});
+    return {__rid:id};
+  }
+  function menuShadow(opcode, field, value){
+    const id=B.rawReporter(opcode, {}, {[field]:[String(value), null]});
+    B.blocks[id].shadow=true;
+    return id;
+  }
+  // encadeia uma sequência de statements dentro de um SUBSTACK, devolvendo o id do 1º
+  function withSubstack(parentId, inputName, cb){
+    const savedCtx=B.stack;
+    const localStack=[{parentId:null,lastId:null,topLevel:false}];
+    B.stack=localStack;
+    let firstId=null;
+    const origPush=localStack[0];
+    cb();
+    // primeiro bloco = quem tem parent===null dentro do que foi criado agora
+    // (rastreamos via lastId chain: encontramos a cabeça subindo por 'parent' do lastId)
+    let head=localStack[0].lastId;
+    if(head){
+      // sobe até achar o bloco sem 'parent' setado corretamente (o primeiro da cadeia)
+      let cur=head, prevParentIsChain=true;
+      let visited=new Set();
+      while(true){
+        const blk=B.blocks[cur];
+        if(!blk.parent || !B.blocks[blk.parent] || B.blocks[blk.parent].next!==cur) break;
+        if(visited.has(blk.parent)) break;
+        visited.add(cur);
+        cur=blk.parent;
+      }
+      firstId=cur;
+      B.blocks[firstId].parent=parentId;
+      B.blocks[parentId].inputs[inputName]=[2, firstId];
+    }
+    B.stack=savedCtx;
+  }
+  function topLevelScript(hatOpcode, fields, cb, extraInputs){
+    B.stack.push({parentId:null,lastId:null,topLevel:true});
+    const hatId=B.rawBlock(hatOpcode, extraInputs||{}, fields||{});
+    B.blocks[hatId].x=Math.floor(Math.random()*300); B.blocks[hatId].y=Math.floor(Math.random()*300);
+    B.stack.pop();
+    if(cb){
+      B.stack.push({parentId:hatId,lastId:hatId,topLevel:false});
+      cb();
+      B.stack.pop();
+    }
+    return hatId;
+  }
+
+  const api={};
+  // --- Eventos (hats) ---
+  api.quandoBandeiraClicada=(cb)=> topLevelScript('event_whenflagclicked',{},cb);
+  api.quandoTeclaPressionada=(tecla,cb)=> topLevelScript('event_whenkeypressed',{KEY_OPTION:[tecla,null]},cb);
+  api.quandoReceber=(msg,cb)=>{ const bid=B.addBroadcast(msg); return topLevelScript('event_whenbroadcastreceived',{BROADCAST_OPTION:[msg,bid]},cb); };
+  api.enviarMensagem=(msg)=>{ const bid=B.addBroadcast(msg); return stmt('event_broadcast',{BROADCAST_INPUT:[1,[11,msg,bid]]}); };
+
+  // --- Movimento ---
+  api.mover=(p)=> stmt('motion_movesteps',{STEPS:in_(p)});
+  api.virar=(g)=> stmt('motion_turnright',{DEGREES:in_(g)});
+  api.virarEsquerda=(g)=> stmt('motion_turnleft',{DEGREES:in_(g)});
+  api.irPara=(x,y)=> stmt('motion_gotoxy',{X:in_(x),Y:in_(y)});
+  api.mudarX=(v)=> stmt('motion_changexby',{DX:in_(v)});
+  api.mudarY=(v)=> stmt('motion_changeyby',{DY:in_(v)});
+  api.apontarPara=(dir)=> stmt('motion_pointindirection',{DIRECTION:in_(dir)});
+  api.rebater=()=> stmt('motion_ifonedgebounce',{});
+
+  // --- Aparência ---
+  api.dizer=(t)=> stmt('looks_say',{MESSAGE:txt_(t)});
+  api.pensar=(t)=> stmt('looks_think',{MESSAGE:txt_(t)});
+  api.mudarFantasia=(nome)=> stmt('looks_switchcostumeto',{COSTUME:[1, menuShadow('looks_costume','COSTUME',nome)]});
+  api.mostrar=()=> stmt('looks_show',{});
+  api.esconder=()=> stmt('looks_hide',{});
+
+  // --- Som ---
+  api.tocarSom=(nome)=> stmt('sound_play',{SOUND_MENU:[1, menuShadow('sound_sounds_menu','SOUND_MENU',nome)]});
+  api.pararTodosOsSons=()=> stmt('sound_stopallsounds',{});
+
+  // --- Controle ---
+  api.esperar=(s)=> stmt('control_wait',{DURATION:in_(s)});
+  api.repetir=(n,cb)=>{ const id=stmt('control_repeat',{TIMES:in_(n)}); withSubstack(id,'SUBSTACK',cb); return id; };
+  api.sempre=(cb)=>{ const id=stmt('control_forever',{}); withSubstack(id,'SUBSTACK',cb); return id; };
+  api.se=(cond,cb)=>{ const id=stmt('control_if',{}); if(cond&&cond.__rid) B.attachReporterAsInput(id,'CONDITION',cond.__rid); withSubstack(id,'SUBSTACK',cb); return id; };
+  api.seSenao=(cond,cb1,cb2)=>{
+    const id=stmt('control_if_else',{}); if(cond&&cond.__rid) B.attachReporterAsInput(id,'CONDITION',cond.__rid);
+    withSubstack(id,'SUBSTACK',cb1); withSubstack(id,'SUBSTACK2',cb2); return id;
+  };
+  api.esperarAte=(cond)=>{ const id=stmt('control_wait_until',{}); if(cond&&cond.__rid) B.attachReporterAsInput(id,'CONDITION',cond.__rid); return id; };
+  api.pararTudo=()=> stmt('control_stop',{},{STOP_OPTION:['all',null]});
+
+  // --- Sensores ---
+  api.toqueNaBorda=()=> reporter('sensing_touchingobject',{TOUCHINGOBJECTMENU:[1, menuShadow('sensing_touchingobjectmenu','TOUCHINGOBJECTMENU','_edge_')]});
+  api.tocando=(alvo)=> reporter('sensing_touchingobject',{TOUCHINGOBJECTMENU:[1, menuShadow('sensing_touchingobjectmenu','TOUCHINGOBJECTMENU',alvo)]});
+  api.teclaPressionada=(tecla)=> reporter('sensing_keypressed',{KEY_OPTION:[1, menuShadow('sensing_keyoptions','KEY_OPTION',tecla)]});
+  api.mouseX=()=> reporter('sensing_mousex',{});
+  api.mouseY=()=> reporter('sensing_mousey',{});
+
+  // --- Operadores ---
+  const opBin=(opcode,a,b)=> reporter(opcode,{NUM1:in_(a),NUM2:in_(b)});
+  api.adicao=(a,b)=> opBin('operator_add',a,b);
+  api.subtracao=(a,b)=> opBin('operator_subtract',a,b);
+  api.multiplicacao=(a,b)=> opBin('operator_multiply',a,b);
+  api.divisao=(a,b)=> opBin('operator_divide',a,b);
+  api.igual=(a,b)=> reporter('operator_equals',{OPERAND1:txt_(a),OPERAND2:txt_(b)});
+  api.maior=(a,b)=> reporter('operator_gt',{OPERAND1:txt_(a),OPERAND2:txt_(b)});
+  api.menor=(a,b)=> reporter('operator_lt',{OPERAND1:txt_(a),OPERAND2:txt_(b)});
+  api.e=(a,b)=> reporter('operator_and',{OPERAND1:[2,a.__rid],OPERAND2:[2,b.__rid]});
+  api.ou=(a,b)=> reporter('operator_or',{OPERAND1:[2,a.__rid],OPERAND2:[2,b.__rid]});
+  api.nao=(a)=> reporter('operator_not',{OPERAND:[2,a.__rid]});
+
+  // --- Variáveis ---
+  api.criarVariavel=(nome)=> B.addVariable(nome);
+  api.definirVariavel=(nome,val)=>{ const vid=B.addVariable(nome); return stmt('data_setvariableto',{VALUE:txt_(val)},{VARIABLE:[nome,vid]}); };
+  api.mudarVariavel=(nome,val)=>{ const vid=B.addVariable(nome); return stmt('data_changevariableby',{VALUE:in_(val)},{VARIABLE:[nome,vid]}); };
+  api.variavel=(nome)=>{ const vid=B.addVariable(nome); return reporter('data_variable',{},{VARIABLE:[nome,vid]}); };
+
+  // --- Listas ---
+  api.criarLista=(nome)=> B.addList(nome);
+  api.adicionarNaLista=(item,nomeLista)=>{ const lid=B.addList(nomeLista); return stmt('data_addtolist',{ITEM:txt_(item)},{LIST:[nomeLista,lid]}); };
+  api.removerDaLista=(indice,nomeLista)=>{ const lid=B.addList(nomeLista); return stmt('data_deleteoflist',{INDEX:in_(indice)},{LIST:[nomeLista,lid]}); };
+  api.limparLista=(nomeLista)=>{ const lid=B.addList(nomeLista); return stmt('data_deletealloflist',{},{LIST:[nomeLista,lid]}); };
+  api.itemDaLista=(indice,nomeLista)=>{ const lid=B.addList(nomeLista); return reporter('data_itemoflist',{INDEX:in_(indice)},{LIST:[nomeLista,lid]}); };
+  api.tamanhoDaLista=(nomeLista)=>{ const lid=B.addList(nomeLista); return reporter('data_lengthoflist',{},{LIST:[nomeLista,lid]}); };
+  api.listaContem=(nomeLista,item)=>{ const lid=B.addList(nomeLista); return reporter('data_listcontainsitem',{ITEM:txt_(item)},{LIST:[nomeLista,lid]}); };
+
+  // --- Nível baixo: acesso direto (spec §3) ---
+  // rawBlock(opcode, {inputs, fields, next, parent, shadow, topLevel, x, y})
+  api.rawBlock=(opcode, options)=>{
+    options=options||{};
+    const id=B.rawBlock(opcode, options.inputs||{}, options.fields||{});
+    if(options.next!==undefined) B.blocks[id].next=options.next;
+    if(options.parent!==undefined) B.blocks[id].parent=options.parent;
+    if(options.shadow!==undefined) B.blocks[id].shadow=options.shadow;
+    if(options.topLevel!==undefined) B.blocks[id].topLevel=options.topLevel;
+    if(options.x!==undefined) B.blocks[id].x=options.x;
+    if(options.y!==undefined) B.blocks[id].y=options.y;
+    return id;
+  };
+
+  return api;
+}
+
+/* =========================================================================
+   4) PROJECT.JSON — monta Stage + 1 Sprite oficiais, incluindo costume
+      padrão (SVG) com md5 correto, a partir dos blocks/vars/broadcasts.
+   ========================================================================= */
+const BLANK_STAGE_SVG='<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360"><rect width="480" height="360" fill="#ffffff"/></svg>';
+const CAT_SVG='<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><circle cx="50" cy="50" r="40" fill="#ff8c1a" stroke="#7a4a12" stroke-width="4"/><circle cx="35" cy="40" r="6" fill="#241f33"/><circle cx="65" cy="40" r="6" fill="#241f33"/><path d="M35 65 Q50 78 65 65" stroke="#241f33" stroke-width="4" fill="none" stroke-linecap="round"/></svg>';
+
+function assetFromSVG(svgText, name, cx, cy){
+  const hash=md5(svgText);
+  return { asset:{assetId:hash, name:name, md5ext:hash+'.svg', dataFormat:'svg', bitmapResolution:1, rotationCenterX:cx, rotationCenterY:cy}, file:svgText, filename:hash+'.svg' };
+}
+
+function buildProject(B){
+  const stageAsset=assetFromSVG(BLANK_STAGE_SVG,'backdrop1',240,180); // Stage é 480x360 → centro 240,180
+  const spriteAsset=assetFromSVG(CAT_SVG,'costume1',50,50);
+
+  const variables={}, lists={}, broadcasts={};
+  for(const id in B.variables) variables[id]=B.variables[id];
+  for(const id in B.lists) lists[id]=B.lists[id];
+  for(const id in B.broadcasts) broadcasts[id]=B.broadcasts[id];
+
+  const stage={
+    isStage:true, name:'Stage', variables:variables, lists:lists, broadcasts:broadcasts,
+    blocks:{}, comments:{}, currentCostume:0,
+    costumes:[stageAsset.asset], sounds:[], volume:100, layerOrder:0,
+    tempo:60, videoTransparency:50, videoState:'on', textToSpeechLanguage:null
+  };
+  const sprite={
+    isStage:false, name:'Sprite1', variables:{}, lists:{}, broadcasts:{},
+    blocks:B.blocks, comments:{}, currentCostume:0,
+    costumes:[spriteAsset.asset], sounds:[], volume:100, layerOrder:1,
+    visible:true, x:0, y:0, size:100, direction:90, draggable:false, rotationStyle:'all around'
+  };
+  const project={
+    targets:[stage, sprite],
+    monitors:[],
+    extensions:[],
+    meta:{semver:'3.0.0', vm:'0.2.0', agent:'JS-Scratch-AST-Studio'}
+  };
+  return {project, assets:[stageAsset, spriteAsset]};
+}
+
+/* =========================================================================
+   5) VALIDADOR — checagens obrigatórias antes de exportar.
+   ========================================================================= */
+function validate(project){
+  const errors=[], warnings=[];
+  if(!project.targets || !project.targets.some(t=>t.isStage)) errors.push('Nenhum target Stage encontrado.');
+  if(!project.meta || !project.meta.semver || !project.meta.vm) errors.push('meta.semver/vm ausentes.');
+  project.targets.forEach(t=>{
+    const req=['isStage','name','variables','lists','broadcasts','blocks','comments','currentCostume','costumes','sounds','volume','layerOrder'];
+    req.forEach(k=>{ if(t[k]===undefined) errors.push(`Target "${t.name}": campo obrigatório "${k}" ausente.`); });
+    if(!t.costumes || t.costumes.length===0) errors.push(`Target "${t.name}": precisa de ao menos 1 costume.`);
+    const ids=Object.keys(t.blocks);
+    ids.forEach(id=>{
+      const b=t.blocks[id];
+      if(!b.opcode) errors.push(`Bloco ${id}: opcode ausente.`);
+      if(b.next && !t.blocks[b.next]) errors.push(`Bloco ${id}: next="${b.next}" não existe.`);
+      if(b.parent && !t.blocks[b.parent]) errors.push(`Bloco ${id}: parent="${b.parent}" não existe.`);
+      if(!b.topLevel && !b.parent) warnings.push(`Bloco ${id} (${b.opcode}) não é topLevel mas não tem parent — possível órfão.`);
+      for(const k in (b.inputs||{})){
+        const v=b.inputs[k];
+        if(!Array.isArray(v)) { errors.push(`Bloco ${id}: input "${k}" com formato inválido.`); continue; }
+        // Quando o input referencia outro bloco (shadow [1,id] ou reporter [2,id]),
+        // esse bloco precisa existir e ter "parent" apontando de volta para este.
+        if((v[0]===1||v[0]===2) && typeof v[1]==='string'){
+          const ref=t.blocks[v[1]];
+          if(!ref) errors.push(`Bloco ${id}: input "${k}" referencia bloco inexistente "${v[1]}".`);
+          else if(ref.parent!==id) errors.push(`Bloco ${id}: input "${k}" aponta para "${v[1]}", mas o parent dele é "${ref.parent}" (deveria ser "${id}").`);
+        }
+      }
+    });
+  });
+  return {errors, warnings, valid:errors.length===0};
+}
+
+/* =========================================================================
+   6) UI / Orquestração
+   ========================================================================= */
+const EXAMPLES={
+  'Exemplo completo (tudo integrado)':
+`// Um único script que usa TODAS as categorias da API juntas:
+// eventos, movimento, aparência, som, controle, sensores,
+// operadores, variáveis, listas e mensagens/broadcasts.
+quandoBandeiraClicada(() => {
+  definirVariavel("pontos", 0);
+  criarLista("historico");
+
+  mover(10);
+  virar(15);
+  dizer("Iniciando!");
+
+  repetir(10, () => {
+    mudarX(5);
+    adicionarNaLista("passo", "historico");
+    mudarVariavel("pontos", 1);
+
+    se(toqueNaBorda(), () => {
+      rebater();
+      enviarMensagem("bateu");
+    });
+  });
+
+  se(maior(variavel("pontos"), 5), () => {
+    dizer("Muitos pontos!");
+  });
+});
+
+quandoReceber("bateu", () => {
+  tocarSom("pop");
+  pensar("Ops, bati na borda!");
+});
+
+quandoTeclaPressionada("espaco", () => {
+  esconder();
+  esperar(1);
+  mostrar();
+});`,
+  'Exemplo mínimo (teste base)':
+`// O menor projeto possível — deve abrir sem erro antes de tentar algo maior.
+quandoBandeiraClicada(() => {
+  mover(10);
+});`
+};
+
+/* =========================================================================
+   7) GUIA DE COMANDOS — referência de uso de toda a API, renderizada na aba
+      "Guia de Comandos" (categoria → comando → assinatura, descrição, exemplo).
+   ========================================================================= */
+const GUIDE=[
+  {cat:'Como usar', intro:true, cmds:[]},
+  {cat:'Eventos e mensagens', cmds:[
+    {sig:'quandoBandeiraClicada(callback)', desc:'Cria um script que começa quando a bandeira verde é clicada. Tudo dentro do callback vira a sequência de blocos.', ex:'quandoBandeiraClicada(() => {\n  mover(10);\n});'},
+    {sig:'quandoTeclaPressionada(tecla, callback)', desc:'Começa o script quando a tecla indicada (ex: "espaco", "a", "seta para cima") é pressionada.', ex:'quandoTeclaPressionada("espaco", () => {\n  mover(10);\n});'},
+    {sig:'quandoReceber(mensagem, callback)', desc:'Começa o script ao receber uma mensagem (broadcast) com esse nome. Registra a mensagem automaticamente.', ex:'quandoReceber("comecar", () => {\n  dizer("Comecei!");\n});'},
+    {sig:'enviarMensagem(mensagem)', desc:'Envia (broadcast) uma mensagem para todos os scripts que estejam esperando por ela.', ex:'enviarMensagem("comecar");'}
+  ]},
+  {cat:'Movimento', cmds:[
+    {sig:'mover(passos)', desc:'Move o sprite N passos na direção atual.', ex:'mover(10);'},
+    {sig:'virar(graus)', desc:'Gira para a direita N graus.', ex:'virar(15);'},
+    {sig:'virarEsquerda(graus)', desc:'Gira para a esquerda N graus.', ex:'virarEsquerda(15);'},
+    {sig:'irPara(x, y)', desc:'Move o sprite diretamente para a coordenada (x, y).', ex:'irPara(0, 0);'},
+    {sig:'mudarX(valor)', desc:'Muda a posição X em relação à atual.', ex:'mudarX(5);'},
+    {sig:'mudarY(valor)', desc:'Muda a posição Y em relação à atual.', ex:'mudarY(5);'},
+    {sig:'apontarPara(direcao)', desc:'Aponta o sprite para um ângulo específico (0-360).', ex:'apontarPara(90);'},
+    {sig:'rebater()', desc:'Ressalta se o sprite estiver tocando a borda do palco.', ex:'rebater();'}
+  ]},
+  {cat:'Aparência', cmds:[
+    {sig:'dizer(texto)', desc:'Mostra um balão de fala com o texto (permanente, até o próximo comando).', ex:'dizer("Olá!");'},
+    {sig:'pensar(texto)', desc:'Mostra um balão de pensamento com o texto.', ex:'pensar("Hmm...");'},
+    {sig:'mudarFantasia(nome)', desc:'Troca para a fantasia/costume com esse nome.', ex:'mudarFantasia("costume2");'},
+    {sig:'mostrar()', desc:'Torna o sprite visível.', ex:'mostrar();'},
+    {sig:'esconder()', desc:'Torna o sprite invisível.', ex:'esconder();'}
+  ]},
+  {cat:'Som', cmds:[
+    {sig:'tocarSom(nome)', desc:'Toca o som com esse nome (não espera terminar).', ex:'tocarSom("pop");'},
+    {sig:'pararTodosOsSons()', desc:'Para todos os sons que estiverem tocando.', ex:'pararTodosOsSons();'}
+  ]},
+  {cat:'Controle', cmds:[
+    {sig:'esperar(segundos)', desc:'Pausa o script por N segundos.', ex:'esperar(1);'},
+    {sig:'repetir(vezes, callback)', desc:'Repete os blocos do callback um número fixo de vezes.', ex:'repetir(10, () => {\n  mudarX(5);\n});'},
+    {sig:'sempre(callback)', desc:'Repete os blocos do callback para sempre (loop infinito do Scratch).', ex:'sempre(() => {\n  mover(1);\n});'},
+    {sig:'se(condicao, callback)', desc:'Executa o callback somente se a condição (um reporter booleano) for verdadeira. Use um sensor/operador como condição.', ex:'se(toqueNaBorda(), () => {\n  rebater();\n});'},
+    {sig:'seSenao(condicao, seCallback, senaoCallback)', desc:'Se a condição for verdadeira executa o primeiro callback, senão executa o segundo.', ex:'seSenao(maior(variavel("v"),5), () => {\n  dizer("Grande");\n}, () => {\n  dizer("Pequeno");\n});'},
+    {sig:'esperarAte(condicao)', desc:'Pausa o script até a condição se tornar verdadeira.', ex:'esperarAte(tocando("borda"));'},
+    {sig:'pararTudo()', desc:'Para a execução de todos os scripts (equivalente a "parar tudo").', ex:'pararTudo();'}
+  ]},
+  {cat:'Sensores', cmds:[
+    {sig:'toqueNaBorda()', desc:'Reporter booleano: verdadeiro se o sprite está tocando a borda do palco. Use dentro de se()/esperarAte().', ex:'se(toqueNaBorda(), () => { rebater(); });'},
+    {sig:'tocando(alvo)', desc:'Reporter booleano: verdadeiro se está tocando o alvo indicado (ex: "_mouse_", nome de outro sprite).', ex:'se(tocando("_mouse_"), () => { esconder(); });'},
+    {sig:'teclaPressionada(tecla)', desc:'Reporter booleano: verdadeiro enquanto a tecla estiver pressionada.', ex:'se(teclaPressionada("espaco"), () => { mover(5); });'},
+    {sig:'mouseX() / mouseY()', desc:'Reporters numéricos com a posição atual do ponteiro do mouse.', ex:'irPara(mouseX(), mouseY());'}
+  ]},
+  {cat:'Operadores', cmds:[
+    {sig:'adicao(a,b) / subtracao(a,b) / multiplicacao(a,b) / divisao(a,b)', desc:'Reporters numéricos com as operações matemáticas básicas.', ex:'mudarX(adicao(5, 2));'},
+    {sig:'igual(a,b) / maior(a,b) / menor(a,b)', desc:'Reporters booleanos de comparação.', ex:'se(maior(variavel("pontos"), 10), () => { dizer("Ganhou!"); });'},
+    {sig:'e(a,b) / ou(a,b) / nao(a)', desc:'Reporters booleanos lógicos — a e b devem ser outros reporters booleanos.', ex:'se(e(toqueNaBorda(), teclaPressionada("espaco")), () => { rebater(); });'}
+  ]},
+  {cat:'Variáveis', cmds:[
+    {sig:'criarVariavel(nome)', desc:'Cria (ou reaproveita) uma variável global com esse nome, sem atribuir bloco algum.', ex:'criarVariavel("pontos");'},
+    {sig:'definirVariavel(nome, valor)', desc:'Define o valor de uma variável (cria se ainda não existir).', ex:'definirVariavel("pontos", 0);'},
+    {sig:'mudarVariavel(nome, valor)', desc:'Soma um valor à variável (delta).', ex:'mudarVariavel("pontos", 1);'},
+    {sig:'variavel(nome)', desc:'Reporter com o valor atual da variável. Use como input de outro bloco.', ex:'dizer(variavel("pontos"));'}
+  ]},
+  {cat:'Listas', cmds:[
+    {sig:'criarLista(nome)', desc:'Cria (ou reaproveita) uma lista global com esse nome.', ex:'criarLista("historico");'},
+    {sig:'adicionarNaLista(item, nomeLista)', desc:'Adiciona um item ao final da lista.', ex:'adicionarNaLista("passo1", "historico");'},
+    {sig:'removerDaLista(indice, nomeLista)', desc:'Remove o item na posição indicada (1 = primeiro).', ex:'removerDaLista(1, "historico");'},
+    {sig:'limparLista(nomeLista)', desc:'Remove todos os itens da lista.', ex:'limparLista("historico");'},
+    {sig:'itemDaLista(indice, nomeLista)', desc:'Reporter com o item na posição indicada.', ex:'dizer(itemDaLista(1, "historico"));'},
+    {sig:'tamanhoDaLista(nomeLista)', desc:'Reporter numérico com a quantidade de itens.', ex:'se(maior(tamanhoDaLista("historico"), 5), () => { limparLista("historico"); });'},
+    {sig:'listaContem(nomeLista, item)', desc:'Reporter booleano: verdadeiro se o item está na lista.', ex:'se(listaContem("historico", "x"), () => { dizer("achei!"); });'}
+  ]},
+  {cat:'Nível baixo (avançado)', cmds:[
+    {sig:'rawBlock(opcode, options)', desc:'Cria um bloco Scratch diretamente pelo opcode oficial, para casos não cobertos pela API de alto nível. options aceita: inputs, fields, next, parent, shadow, topLevel, x, y.', ex:'rawBlock("looks_seteffectto", {\n  inputs: { EFFECT: [1,[10,"COLOR"]], VALUE: [1,[4,25]] }\n});'}
+  ]}
+];
+function renderGuide(){
+  const box=el('p-guide');
+  let html='<p class="gintro">'+
+    '<strong>Como usar:</strong> escreva no editor à esquerda usando as funções abaixo (todas em português). '+
+    'Todo script começa com um evento (<code>quandoBandeiraClicada</code>, <code>quandoTeclaPressionada</code> ou <code>quandoReceber</code>). '+
+    'Funções que "fazem algo" (mover, dizer, repetir...) são comandos; funções que "devolvem um valor" (toqueNaBorda, variavel, adicao...) são reporters e só '+
+    'fazem sentido como argumento de outra função, nunca sozinhas. Depois de escrever, clique <strong>Validar</strong> para checar erros e depois '+
+    '<strong>Gerar e Baixar .sb3</strong> para exportar. Use o seletor "Carregar exemplo" no topo para ver um script completo já pronto.</p>';
+  GUIDE.forEach(g=>{
+    if(g.intro) return;
+    html+='<div class="gcat"><h3>'+g.cat+'</h3>';
+    g.cmds.forEach(c=>{
+      html+='<div class="gcmd"><code class="sig">'+c.sig+'</code><p>'+c.desc+'</p><pre class="ex">'+c.ex.replace(/</g,'&lt;')+'</pre></div>';
+    });
+    html+='</div>';
+  });
+  box.innerHTML=html;
+}
+function el(id){return document.getElementById(id);}
+renderGuide();
+
+
+const exSel=el('examples');
+Object.keys(EXAMPLES).forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=k; exSel.appendChild(o); });
+exSel.addEventListener('change', ()=>{ el('code').value=EXAMPLES[exSel.value]; });
+el('code').value=EXAMPLES[Object.keys(EXAMPLES)[0]];
+
+document.querySelectorAll('.tab[data-p]').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab[data-p]').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active'); el('p-'+t.dataset.p).classList.add('active');
+  });
+});
+
+function showMsgs(list){
+  const box=el('p-msgs'); box.innerHTML='';
+  list.forEach(m=>{ const d=document.createElement('div'); d.className='msg '+m.type; d.textContent=m.text; box.appendChild(d); });
+}
+
+// Executa o código do usuário com a API DSL injetada; devolve {B, project, error}
+function runUserCode(code){
+  const B=new Builder();
+  const api=buildAPI(B);
+  const argNames=Object.keys(api);
+  const argVals=argNames.map(k=>api[k]);
+  try{
+    const fn=new Function(...argNames, code);
+    fn(...argVals);
+  }catch(e){
+    return {error:'Erro ao executar o código: '+e.message};
+  }
+  const {project}=buildProject(B);
+  return {B, project};
+}
+
+el('btnValidate').addEventListener('click', ()=>{
+  const code=el('code').value;
+  const {error, project}=runUserCode(code);
+  if(error){ showMsgs([{type:'err',text:error}]); return; }
+  const v=validate(project);
+  el('astOut').textContent=JSON.stringify(project.targets[1].blocks, null, 2);
+  el('jsonOut').textContent=JSON.stringify(project, null, 2);
+  const msgs=[];
+  if(v.valid) msgs.push({type:'ok', text:'✓ Válido! '+Object.keys(project.targets[1].blocks).length+' blocos gerados. Pronto para exportar.'});
+  else v.errors.forEach(e=>msgs.push({type:'err', text:'✗ '+e}));
+  v.warnings.forEach(w=>msgs.push({type:'info', text:'⚠ '+w}));
+  showMsgs(msgs);
+});
+
+el('btnBuild').addEventListener('click', async ()=>{
+  const code=el('code').value;
+  const {error, project}=runUserCode(code);
+  if(error){ showMsgs([{type:'err',text:error}]); return; }
+  const v=validate(project);
+  el('astOut').textContent=JSON.stringify(project.targets[1].blocks, null, 2);
+  el('jsonOut').textContent=JSON.stringify(project, null, 2);
+  if(!v.valid){
+    showMsgs(v.errors.map(e=>({type:'err',text:'✗ '+e})).concat([{type:'err',text:'Corrija os erros acima antes de gerar o .sb3.'}]));
+    return;
+  }
+  // reexecuta para obter um Builder novo (com blocks/assets) ligado ao mesmo código já validado
+  const built=buildProject((()=>{
+    const B2=new Builder(); const api2=buildAPI(B2);
+    new Function(...Object.keys(api2), code)(...Object.values(api2));
+    return B2;
+  })());
+
+  const zip=new JSZip();
+  zip.file('project.json', JSON.stringify(built.project));
+  built.assets.forEach(a=> zip.file(a.filename, a.file));
+
+  try{
+    const blob=await zip.generateAsync({type:'blob'});
+    showMsgs([{type:'info', text:'Empacotando .sb3 (' + Math.round(blob.size/1024) + ' KB)...'}]);
+    const downloads = await claude.use('downloads');
+    if(!downloads){
+      showMsgs([{type:'err', text:'Download não disponível neste visualizador.'}]);
+      return;
+    }
+    // Este visualizador (claude.ai) só permite salvar arquivos com extensões de
+    // uma lista fixa, e ".sb3" não está nela — então o arquivo tem que sair
+    // como ".zip" (o conteúdo binário é idêntico a um .sb3 oficial).
+    await downloads.save({filename:'projeto-scratch.zip', data:blob});
+    showMsgs([
+      {type:'ok', text:'✓ "projeto-scratch.zip" baixado (' + Math.round(blob.size/1024) + ' KB).'},
+      {type:'info', text:'Este ambiente de chat não permite salvar arquivos com extensão .sb3 diretamente — é uma restrição da plataforma, não do conteúdo do arquivo.'},
+      {type:'info', text:'Para abrir no Scratch: (1) ative "mostrar extensões de arquivo" no seu sistema (Windows Explorer/macOS Finder costumam esconder isso, o que causa duplicação tipo ".sb3.zip"); (2) renomeie o arquivo para terminar exatamente em ".sb3" (apague o ".zip"); (3) abra no Scratch com "Carregar do seu computador".'}
+    ]);
+  }catch(e){
+    showMsgs([{type:'err', text:'Falha ao salvar: '+(e && e.message ? e.message : e)}]);
+  }
+});
+
+el('btnHelp').addEventListener('click', ()=>{
+  document.querySelector('.tab[data-p="guide"]').click();
+});
+</script>
+</body>
+</html>
